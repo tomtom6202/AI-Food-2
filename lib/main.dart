@@ -48,7 +48,6 @@ class _MainScreenState extends State<MainScreen> {
         ),
         backgroundColor: Colors.green,
       ),
-      // 導入 IndexedStack 讓首頁背景排隊時切換分頁不會中斷
       body: IndexedStack(
         index: _currentIndex,
         children: [
@@ -76,8 +75,12 @@ class _MainScreenState extends State<MainScreen> {
 }
 
 // ==========================================
-// 全域共用工具與常數
+// 全域共用工具、常數與資料更新廣播器
 // ==========================================
+
+// 【新增】全域資料更新廣播器
+final ValueNotifier<int> appDataVersion = ValueNotifier<int>(0);
+
 final Map<String, String> nutrientDisplayNames = {
   'calories_kcal': '熱量 (kcal)',
   'protein_g': '蛋白質 (g)',
@@ -275,7 +278,6 @@ class _HomePageState extends State<HomePage> {
         "generationConfig": {"response_mime_type": "application/json"}
       });
 
-      // 非阻塞式輪詢 (自動等待 4 秒防 RPM 超標)
       while (!isCancelled) {
         final response = await http.post(url, headers: {'Content-Type': 'application/json'}, body: requestBody);
         
@@ -442,10 +444,12 @@ class _HomePageState extends State<HomePage> {
               list.insert(0, data);
               await prefs.setString('food_records', jsonEncode(list));
               
+              // 【新增】觸發廣播：資料已更新！
+              appDataVersion.value++;
+              
               if (!mounted) return;
               Navigator.pop(ctx);
               
-              // 儲存後立即清空首頁狀態
               setState(() {
                 _imageBytes = null;
                 _noteController.clear();
@@ -571,14 +575,25 @@ class _RecordsPageState extends State<RecordsPage> {
   void initState() {
     super.initState();
     _loadRecords();
+    // 【新增】戴上監聽耳機：只要收到廣播，就立刻重新讀取
+    appDataVersion.addListener(_loadRecords);
+  }
+
+  @override
+  void dispose() {
+    // 移除監聽避免記憶體洩漏
+    appDataVersion.removeListener(_loadRecords);
+    super.dispose();
   }
 
   Future<void> _loadRecords() async {
     final prefs = await SharedPreferences.getInstance();
     final List decoded = jsonDecode(prefs.getString('food_records') ?? '[]');
-    setState(() {
-      _records = decoded.map((e) => Map<String, dynamic>.from(e)).toList();
-    });
+    if (mounted) {
+      setState(() {
+        _records = decoded.map((e) => Map<String, dynamic>.from(e)).toList();
+      });
+    }
   }
 
   Future<void> _saveRecords() async {
@@ -655,6 +670,9 @@ class _RecordsPageState extends State<RecordsPage> {
                   _records = parsed.map((e) => Map<String, dynamic>.from(e)).toList();
                 });
                 await _saveRecords();
+                // 【新增】觸發廣播
+                appDataVersion.value++;
+
                 if (!mounted) return;
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -705,7 +723,9 @@ class _RecordsPageState extends State<RecordsPage> {
                 );
                 if (updated != null) {
                   setState(() { _records[index] = updated; });
-                  _saveRecords();
+                  await _saveRecords();
+                  // 【新增】觸發廣播
+                  appDataVersion.value++;
                 }
               }
             )
@@ -782,10 +802,12 @@ class _RecordsPageState extends State<RecordsPage> {
         actions: [
           TextButton(
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            onPressed: () {
+            onPressed: () async {
               setState(() { _records.removeAt(index); });
-              _saveRecords();
-              Navigator.pop(ctx);
+              await _saveRecords();
+              // 【新增】觸發廣播
+              appDataVersion.value++;
+              if (mounted) Navigator.pop(ctx);
             },
             child: const Text('刪除此筆')
           ),
@@ -855,9 +877,11 @@ class _RecordsPageState extends State<RecordsPage> {
                       subtitle: Text('${item['record_date'] ?? ''}\n${tWeight}g · ${totalCalories.toStringAsFixed(0)} kcal'),
                       trailing: IconButton(
                         icon: const Icon(Icons.delete, color: Colors.red),
-                        onPressed: () {
+                        onPressed: () async {
                           setState(() { _records.removeAt(i); });
-                          _saveRecords();
+                          await _saveRecords();
+                          // 【新增】觸發廣播
+                          appDataVersion.value++;
                         }
                       ),
                       onTap: () => _showDetail(item, i),
@@ -1110,15 +1134,39 @@ class _CalculatorPageState extends State<CalculatorPage> {
   void initState() {
     super.initState();
     _loadData();
+    // 【新增】戴上監聽耳機：只要收到廣播，就立刻重新讀取並同步更新
+    appDataVersion.addListener(_loadData);
+  }
+
+  @override
+  void dispose() {
+    // 移除監聽避免記憶體洩漏
+    appDataVersion.removeListener(_loadData);
+    super.dispose();
   }
 
   Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
     final List decoded = jsonDecode(prefs.getString('food_records') ?? '[]');
-    setState(() {
-      _records = decoded.map((e) => Map<String, dynamic>.from(e)).toList();
-      _targetCalories = prefs.getInt('target_calories') ?? 2000;
-    });
+    
+    if (mounted) {
+      setState(() {
+        _records = decoded.map((e) => Map<String, dynamic>.from(e)).toList();
+        _targetCalories = prefs.getInt('target_calories') ?? 2000;
+        
+        // 【加碼優化】智慧同步右側已加入清單的最新數值
+        for (int i = 0; i < _selectedItems.length; i++) {
+          final currentItem = _selectedItems[i]['record'];
+          final match = _records.firstWhere(
+            (r) => r['record_date'] == currentItem['record_date'] && r['food_name'] == currentItem['food_name'],
+            orElse: () => <String, dynamic>{} // 若找不到回傳空 Map
+          );
+          if (match.isNotEmpty) {
+            _selectedItems[i]['record'] = match;
+          }
+        }
+      });
+    }
   }
 
   void _addToCalculator(Map<String, dynamic> record) {
@@ -1825,6 +1873,9 @@ class _SettingsPageState extends State<SettingsPage> {
     await prefs.setInt('target_calories', int.tryParse(_targetCaloriesController.text.trim()) ?? 2000); 
     await prefs.setString('gemini_model', _selectedModel);
     await prefs.setBool('upload_original', _uploadOriginal);
+    
+    // 【新增】觸發廣播：讓計算機頁面能立刻更新目標熱量！
+    appDataVersion.value++;
   }
 
   @override
