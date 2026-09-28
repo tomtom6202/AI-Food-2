@@ -71,29 +71,52 @@ class _MainScreenState extends State<MainScreen> {
 // ==========================================
 final Map<String, String> nutrientDisplayNames = {
   'calories_kcal': '熱量 (kcal)', 'protein_g': '蛋白質 (g)', 'fat_g': '脂肪 (g)', 'carbs_g': '碳水化合物 (g)',
-  'dietary_fiber_g': '膳食纖維 (g)', 'cholesterol_mg': '膽固醇 (mg)', 'calcium_mg': '鈣 (mg)',
+  'sugar_g': '糖分 (g)', 'sodium_mg': '鈉 (mg)', 'dietary_fiber_g': '膳食纖維 (g)', 'trans_fat_g': '反式脂肪 (g)',
+  'cholesterol_mg': '膽固醇 (mg)', 'calcium_mg': '鈣 (mg)',
   'vitamin_A_ug': '維生素A (ug)', 'vitamin_B1_mg': '維生素B1 (mg)', 'vitamin_B2_mg': '維生素B2 (mg)',
   'vitamin_B6_mg': '維生素B6 (mg)', 'vitamin_B12_ug': '維生素B12 (ug)', 'vitamin_C_mg': '維生素C (mg)',
   'vitamin_D_ug': '維生素D (ug)', 'vitamin_E_mg': '維生素E (mg)', 'niacin_mg': '煙酸 (mg)',
-  'phosphorus_mg': '磷 (mg)', 'potassium_mg': '鉀 (mg)', 'sodium_mg': '鈉 (mg)', 'magnesium_mg': '鎂 (mg)',
-  'iron_mg': '鐵 (mg)', 'zinc_mg': '鋅 (mg)', 'trans_fat_g': '反式脂肪 (g)', 'saturated_fat_g': '飽和脂肪 (g)',
-  'sugar_g': '糖 (g)', 'selenium_ug': '硒 (ug)', 'copper_ug': '銅 (ug)', 'manganese_mg': '錳 (mg)',
+  'phosphorus_mg': '磷 (mg)', 'potassium_mg': '鉀 (mg)', 'magnesium_mg': '鎂 (mg)',
+  'iron_mg': '鐵 (mg)', 'zinc_mg': '鋅 (mg)', 'saturated_fat_g': '飽和脂肪 (g)',
+  'selenium_ug': '硒 (ug)', 'copper_ug': '銅 (ug)', 'manganese_mg': '錳 (mg)',
 };
 
 Widget _buildEvalRow(String title, dynamic evalData) {
   if (evalData == null) return const SizedBox.shrink();
-  String score = '?'; String reason = '';
-  if (evalData is Map) { score = evalData['score']?.toString() ?? '?'; reason = evalData['reason']?.toString() ?? ''; } else { score = '-'; reason = evalData.toString(); }
+  String score = '?';
+  String reason = '';
+  if (evalData is Map) {
+    score = evalData['score']?.toString() ?? '?';
+    reason = evalData['reason']?.toString() ?? '';
+  } else {
+    score = '-';
+    reason = evalData.toString();
+  }
+
   Color scoreColor = Colors.grey;
-  if (score == 'A') scoreColor = Colors.green; if (score == 'B') scoreColor = Colors.blue;
-  if (score == 'C') scoreColor = Colors.orange; if (score == 'D') scoreColor = Colors.red;
+  if (score == 'A') scoreColor = Colors.green;
+  if (score == 'B') scoreColor = Colors.blue;
+  if (score == 'C') scoreColor = Colors.orange;
+  if (score == 'D') scoreColor = Colors.red;
+
   return Padding(
     padding: const EdgeInsets.only(top: 8.0, bottom: 4.0),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(children: [Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)), const SizedBox(width: 8), Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: scoreColor.withOpacity(0.2), border: Border.all(color: scoreColor), borderRadius: BorderRadius.circular(4)), child: Text(score, style: TextStyle(color: scoreColor, fontWeight: FontWeight.bold)))]),
-        const SizedBox(height: 4), Text(reason, style: const TextStyle(color: Colors.black87)),
+        Row(
+          children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(color: scoreColor.withOpacity(0.2), border: Border.all(color: scoreColor), borderRadius: BorderRadius.circular(4)),
+              child: Text(score, style: TextStyle(color: scoreColor, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(reason, style: const TextStyle(color: Colors.black87)),
       ],
     ),
   );
@@ -138,14 +161,27 @@ class _HomePageState extends State<HomePage> {
     final prefs = await SharedPreferences.getInstance();
     final uploadOriginal = prefs.getBool('upload_original') ?? false;
     final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: source, maxWidth: uploadOriginal ? 1920 : 800, maxHeight: uploadOriginal ? 1920 : 800, imageQuality: uploadOriginal ? 100 : 70);
-    if (pickedFile != null) { final bytes = await pickedFile.readAsBytes(); setState(() { _imageBytes = bytes; }); }
+    final pickedFile = await picker.pickImage(
+      source: source,
+      maxWidth: uploadOriginal ? 1920 : 800,
+      maxHeight: uploadOriginal ? 1920 : 800,
+      imageQuality: uploadOriginal ? 100 : 70,
+    );
+    if (pickedFile != null) {
+      final bytes = await pickedFile.readAsBytes();
+      setState(() { _imageBytes = bytes; });
+    }
   }
 
   Future<void> _analyzeFood() async {
-    if (_imageBytes == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('請先拍照或從相簿選取食物照片'))); return; }
+    if (_imageBytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('請先拍照或從相簿選取食物照片')));
+      return;
+    }
     setState(() { _isLoading = true; });
-    bool isRetrying = false; bool isCancelled = false; BuildContext? dialogContext;
+    bool isRetrying = false;
+    bool isCancelled = false;
+    BuildContext? dialogContext;
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -155,12 +191,12 @@ class _HomePageState extends State<HomePage> {
       if (apiKey.isEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('請先切換至「設定」頁面輸入 API Key')));
-        setState(() { _isLoading = false; }); return;
+        setState(() { _isLoading = false; });
+        return;
       }
 
       final base64Image = base64Encode(_imageBytes!);
       
-      // 新增 4 大微量元素填空
       final prompt = '''
 你是一位專業的 AI 營養顧問。請分析照片中的食物，並參考備註：「${_noteController.text.trim()}」。
 請務必只輸出純 JSON 格式，不要加入 ```json 標籤或任何說明文字。
@@ -176,7 +212,7 @@ class _HomePageState extends State<HomePage> {
     "sugar_g": 5,
     "sodium_mg": 300,
     "dietary_fiber_g": 2.5,
-    "trans_fat_g": 0.1
+    "trans_fat_g": 0.0
   },
   "breakdown": [
     {"name": "食材1", "weight_g": 100, "calories_kcal": 150}
@@ -191,7 +227,10 @@ class _HomePageState extends State<HomePage> {
 ''';
 
       final url = Uri.https('generativelanguage.googleapis.com', '/v1beta/models/$modelName:generateContent', {'key': apiKey});
-      final requestBody = jsonEncode({ "contents": [{"parts": [{"text": prompt}, {"inline_data": {"mime_type": "image/jpeg", "data": base64Image}}]}], "generationConfig": {"response_mime_type": "application/json"} });
+      final requestBody = jsonEncode({
+        "contents": [{"parts": [{"text": prompt}, {"inline_data": {"mime_type": "image/jpeg", "data": base64Image}}]}],
+        "generationConfig": {"response_mime_type": "application/json"}
+      });
 
       while (!isCancelled) {
         final response = await http.post(url, headers: {'Content-Type': 'application/json'}, body: requestBody);
@@ -199,7 +238,8 @@ class _HomePageState extends State<HomePage> {
           if (isRetrying && dialogContext != null && mounted) { Navigator.pop(dialogContext!); isRetrying = false; }
           final data = jsonDecode(response.body);
           String rawText = data['candidates'][0]['content']['parts'][0]['text'];
-          int startIndex = rawText.indexOf('{'); int endIndex = rawText.lastIndexOf('}');
+          int startIndex = rawText.indexOf('{');
+          int endIndex = rawText.lastIndexOf('}');
           if (startIndex != -1 && endIndex != -1) rawText = rawText.substring(startIndex, endIndex + 1);
           final dbThumbnailBase64 = await _generateDbThumbnail(_imageBytes!);
           if (!mounted) return;
@@ -209,22 +249,27 @@ class _HomePageState extends State<HomePage> {
           if (!isRetrying) {
             isRetrying = true;
             if (!mounted) return;
+            // 完美還原原本 100% 的伺服器擁擠提示與設定跳轉按鈕
             showDialog(context: context, barrierDismissible: false, builder: (ctx) {
                 dialogContext = ctx;
-                return AlertDialog(title: const Text('伺服器滿載中'), content: const Column(mainAxisSize: MainAxisSize.min, children: [CircularProgressIndicator(color: Colors.green), SizedBox(height: 16), Text('排隊等待中，請稍後。', textAlign: TextAlign.center)]), actions: [TextButton(onPressed: () { isCancelled = true; Navigator.pop(ctx); }, child: const Text('取消', style: TextStyle(color: Colors.grey)))]);
+                return AlertDialog(title: const Text('伺服器滿載中'), content: const Column(mainAxisSize: MainAxisSize.min, children: [CircularProgressIndicator(color: Colors.green), SizedBox(height: 16), Text('排隊等待模型中，請稍後。\n如等待過久，請至設定中嘗試其他模型。', textAlign: TextAlign.center)]), actions: [TextButton(onPressed: () { isCancelled = true; Navigator.pop(ctx); }, child: const Text('取消', style: TextStyle(color: Colors.grey))), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.blue), onPressed: () { isCancelled = true; Navigator.pop(ctx); widget.onGoToSettings(); }, child: const Text('選擇其他模型', style: TextStyle(color: Colors.white)))]);
             });
           }
-          await Future.delayed(const Duration(milliseconds: 500)); continue;
+          await Future.delayed(const Duration(milliseconds: 500));
+          continue;
         } else {
           if (isRetrying && dialogContext != null && mounted) { Navigator.pop(dialogContext!); isRetrying = false; }
-          String msg = '未知錯誤'; try { msg = jsonDecode(response.body)['error']['message'] ?? response.body; } catch (_) { msg = response.body; }
-          if (!mounted) return; showDialog(context: context, builder: (ctx) => AlertDialog(title: Text('API 失敗 (${response.statusCode})'), content: SingleChildScrollView(child: Text(msg)), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('確定'))]));
+          String msg = '未知錯誤';
+          try { msg = jsonDecode(response.body)['error']['message'] ?? response.body; } catch (_) { msg = response.body; }
+          if (!mounted) return;
+          showDialog(context: context, builder: (ctx) => AlertDialog(title: Text('API 連線失敗 (${response.statusCode})'), content: SingleChildScrollView(child: Text('伺服器訊息:\n$msg')), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('確定'))]));
           break;
         }
       }
     } catch (e) {
       if (isRetrying && dialogContext != null && mounted) Navigator.pop(dialogContext!);
-      if (!mounted) return; showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('發生錯誤'), content: SingleChildScrollView(child: Text('$e')), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('確定'))]));
+      if (!mounted) return;
+      showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('發生錯誤'), content: SingleChildScrollView(child: Text('$e')), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('確定'))]));
     } finally {
       if (mounted) setState(() { _isLoading = false; });
     }
@@ -232,17 +277,66 @@ class _HomePageState extends State<HomePage> {
 
   void _showResultAndSaveDialog(Map<String, dynamic> data, String dbBase64Img) {
     final nameCtrl = TextEditingController(text: data['food_name']?.toString() ?? '未命名食物');
+    final num totalWeight = safeParseNum(data['total_weight_g']);
+    final Map<String, dynamic> nutrients = data['nutrients_per_100g'] is Map ? data['nutrients_per_100g'] : {};
+    final num caloriesPer100g = safeParseNum(nutrients['calories_kcal']);
+    final num totalCalories = (caloriesPer100g / 100) * totalWeight;
+    final dynamic breakdownData = data['breakdown'];
+    final dynamic evaluation = data['evaluation'];
+
     showDialog(
-      context: context, barrierDismissible: false,
+      context: context,
+      barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: const Text('AI 分析完成 (預覽)'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: '食物名稱', border: OutlineInputBorder())),
-            const SizedBox(height: 12),
-            const Text('詳細營養素與圖片可於儲存後，至「紀錄」分頁進行全面修改與微調。', style: TextStyle(color: Colors.grey, fontSize: 13)),
-          ],
+        title: const Text('AI 分析完成'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: '食物名稱', border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      Column(children: [const Text('預估總重', style: TextStyle(color: Colors.green)), Text('$totalWeight g', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18))]),
+                      Column(children: [const Text('預估總熱量', style: TextStyle(color: Colors.green)), Text('${totalCalories.toStringAsFixed(1)} kcal', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18))]),
+                    ],
+                  ),
+                ),
+                const Divider(height: 24),
+                if (breakdownData is List && breakdownData.isNotEmpty) ...[
+                  const Text('🍔 食物組成拆解：', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  ...breakdownData.whereType<Map>().map((item) {
+                     num bWeight = safeParseNum(item['weight_g']);
+                     num bKcal = safeParseNum(item['calories_kcal']);
+                     return Padding(padding: const EdgeInsets.only(bottom: 4.0), child: Text('• ${item['name']} (${bWeight}g, ${bKcal}大卡)'));
+                  }),
+                  const Divider(height: 24),
+                ],
+                if (evaluation is Map) ...[
+                  const Text('🤖 AI 專業評價：', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  _buildEvalRow('健身', evaluation['fitness']),
+                  _buildEvalRow('瘦身', evaluation['weight_loss']),
+                  _buildEvalRow('多樣性', evaluation['diversity']),
+                  _buildEvalRow('綜合', evaluation['overall']),
+                  const Divider(height: 24),
+                ],
+                const Text('📊 每 100g 營養素含量：', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                ...nutrients.entries.where((e) => e.value != null && e.value.toString().toLowerCase() != 'null').map((e) {
+                  num val = safeParseNum(e.value);
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2.0), 
+                    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(nutrientDisplayNames[e.key] ?? e.key), Text('$val', style: const TextStyle(fontWeight: FontWeight.bold))]),
+                  );
+                }),
+              ],
+            ),
+          ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('捨棄')),
@@ -251,13 +345,15 @@ class _HomePageState extends State<HomePage> {
             onPressed: () async {
               data['food_name'] = nameCtrl.text.trim();
               data['record_date'] = DateTime.now().toString().substring(0, 16);
+              data['calculated_total_calories'] = totalCalories;
               data['image_base64'] = dbBase64Img; 
               final prefs = await SharedPreferences.getInstance();
               final List list = jsonDecode(prefs.getString('food_records') ?? '[]');
               list.insert(0, data);
               await prefs.setString('food_records', jsonEncode(list));
               if (!mounted) return;
-              Navigator.pop(ctx); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已儲存！請至紀錄分頁檢視')));
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已儲存紀錄！')));
             },
             child: const Text('儲存紀錄', style: TextStyle(color: Colors.white)),
           ),
@@ -272,13 +368,35 @@ class _HomePageState extends State<HomePage> {
       padding: const EdgeInsets.all(16.0),
       child: Column(
         children: [
-          Expanded(child: Container(width: double.infinity, decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(12)), child: _imageBytes == null ? const Center(child: Text('請點選下方按鈕拍照', style: TextStyle(color: Colors.grey))) : ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.memory(_imageBytes!, fit: BoxFit.cover)))),
+          Expanded(
+            child: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(12)),
+              child: _imageBytes == null
+                  ? const Center(child: Text('請點選下方按鈕拍照或選圖', style: TextStyle(color: Colors.grey)))
+                  : ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.memory(_imageBytes!, fit: BoxFit.cover)),
+            ),
+          ),
           const SizedBox(height: 12),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [ElevatedButton.icon(onPressed: () => _pickImage(ImageSource.camera), icon: const Icon(Icons.camera_alt), label: const Text('拍照'), style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white)), ElevatedButton.icon(onPressed: () => _pickImage(ImageSource.gallery), icon: const Icon(Icons.photo_library), label: const Text('相簿'), style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white))]),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              ElevatedButton.icon(onPressed: () => _pickImage(ImageSource.camera), icon: const Icon(Icons.camera_alt), label: const Text('拍照'), style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white)),
+              ElevatedButton.icon(onPressed: () => _pickImage(ImageSource.gallery), icon: const Icon(Icons.photo_library), label: const Text('相簿'), style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white)),
+            ],
+          ),
           const SizedBox(height: 12),
-          TextField(controller: _noteController, decoration: const InputDecoration(labelText: '文字備註 (例如：去冰半糖)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.edit_note))),
+          TextField(controller: _noteController, decoration: const InputDecoration(labelText: '文字備註 (例如：微糖微冰、半份、去皮)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.edit_note))),
           const SizedBox(height: 12),
-          SizedBox(width: double.infinity, height: 48, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white), onPressed: _isLoading ? null : _analyzeFood, child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('送出 AI 分析', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)))),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+              onPressed: _isLoading ? null : _analyzeFood,
+              child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('送出 AI 分析', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ),
+          ),
         ],
       ),
     );
@@ -286,7 +404,7 @@ class _HomePageState extends State<HomePage> {
 }
 
 // ==========================================
-// 2. 紀錄頁面 (輕量匯出/匯入)
+// 2. 紀錄頁面 (檢視詳細與跳轉編輯)
 // ==========================================
 class RecordsPage extends StatefulWidget {
   const RecordsPage({super.key});
@@ -314,7 +432,6 @@ class _RecordsPageState extends State<RecordsPage> {
     await prefs.setString('food_records', jsonEncode(_records));
   }
 
-  // 輕量化匯出：拔除圖片 Base64
   void _exportJsonFile() {
     final lightweightRecords = _records.map((item) {
       var copy = Map<String, dynamic>.from(item);
@@ -326,7 +443,7 @@ class _RecordsPageState extends State<RecordsPage> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('純文字備份匯出 (無圖片)'),
+        title: const Text('備份匯出 (純文字無圖)'),
         content: SizedBox(width: double.maxFinite, child: SingleChildScrollView(child: SelectableText(jsonStr, style: const TextStyle(fontSize: 10, color: Colors.grey)))),
         actions: [
           TextButton(
@@ -344,7 +461,7 @@ class _RecordsPageState extends State<RecordsPage> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('純文字備份匯入'),
+        title: const Text('備份匯入 (純文字)'),
         content: TextField(controller: inputCtrl, maxLines: 8, decoration: const InputDecoration(hintText: '請貼上 JSON 資料...', border: OutlineInputBorder())),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
@@ -355,11 +472,104 @@ class _RecordsPageState extends State<RecordsPage> {
                 setState(() { _records = parsed.map((e) => Map<String, dynamic>.from(e)).toList(); });
                 await _saveRecords();
                 if (!mounted) return;
-                Navigator.pop(ctx); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('資料匯入成功！可透過編輯補上圖片。')));
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('資料匯入成功！可點擊食物進行編輯或補上圖片。')));
               } catch (_) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('匯入失敗，格式錯誤'))); }
             },
             child: const Text('確定匯入'),
           ),
+        ],
+      ),
+    );
+  }
+
+  void _showDetail(Map<String, dynamic> item, int index) {
+    final Map<String, dynamic> nutrients = item['nutrients_per_100g'] is Map ? item['nutrients_per_100g'] : {};
+    final dynamic breakdownData = item['breakdown'];
+    final dynamic evaluation = item['evaluation'];
+    final String? base64Img = item['image_base64'];
+    
+    num tWeight = safeParseNum(item['total_weight_g']);
+    num cPer100 = safeParseNum(nutrients['calories_kcal']);
+    num totalCalories = (cPer100 / 100) * tWeight;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Expanded(child: Text(item['food_name']?.toString() ?? '詳細數據', overflow: TextOverflow.ellipsis)),
+            IconButton(
+              icon: const Icon(Icons.edit, color: Colors.blue),
+              tooltip: '編輯完整數值與圖片',
+              onPressed: () async {
+                Navigator.pop(ctx);
+                final updated = await Navigator.push(context, MaterialPageRoute(builder: (_) => EditRecordPage(record: item)));
+                if (updated != null) {
+                  setState(() { _records[index] = updated; });
+                  _saveRecords();
+                }
+              },
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (base64Img != null && base64Img.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12.0),
+                    child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.memory(base64Decode(base64Img), height: 180, width: double.infinity, fit: BoxFit.cover)),
+                  ),
+                Text('紀錄時間: ${item['record_date'] ?? '無'}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      Text('總重: ${tWeight}g', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      Text('總熱量: ${totalCalories.toStringAsFixed(1)} kcal', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+                const Divider(height: 20),
+                if (breakdownData is List && breakdownData.isNotEmpty) ...[
+                  const Text('🍔 食物拆解：', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  ...breakdownData.whereType<Map>().map((b) {
+                     num bWeight = safeParseNum(b['weight_g']);
+                     num bKcal = safeParseNum(b['calories_kcal']);
+                     return Text('• ${b['name']} (${bWeight}g, ${bKcal}大卡)');
+                  }),
+                  const Divider(height: 20),
+                ],
+                if (evaluation is Map) ...[
+                  const Text('🤖 AI 專業評價：', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  _buildEvalRow('健身', evaluation['fitness']),
+                  _buildEvalRow('瘦身', evaluation['weight_loss']),
+                  _buildEvalRow('多樣性', evaluation['diversity']),
+                  _buildEvalRow('綜合', evaluation['overall']),
+                  const Divider(height: 20),
+                ],
+                const Text('📊 每 100g 數值：', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                ...nutrients.entries.where((e) => e.value != null && e.value.toString().toLowerCase() != 'null').map((e) {
+                  num val = safeParseNum(e.value);
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2.0),
+                    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(nutrientDisplayNames[e.key] ?? e.key), Text('$val', style: const TextStyle(fontWeight: FontWeight.bold))]),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(style: TextButton.styleFrom(foregroundColor: Colors.red), onPressed: () { setState(() { _records.removeAt(index); }); _saveRecords(); Navigator.pop(ctx); }, child: const Text('刪除此筆')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('關閉')),
         ],
       ),
     );
@@ -393,18 +603,13 @@ class _RecordsPageState extends State<RecordsPage> {
                     num totalCalories = (cPer100 / 100) * tWeight;
                     
                     return ListTile(
-                      leading: base64Img != null && base64Img.isNotEmpty ? ClipRRect(borderRadius: BorderRadius.circular(4), child: Image.memory(base64Decode(base64Img), width: 50, height: 50, fit: BoxFit.cover)) : const CircleAvatar(backgroundColor: Colors.green, child: Icon(Icons.restaurant, color: Colors.white)),
+                      leading: base64Img != null && base64Img.isNotEmpty
+                          ? ClipRRect(borderRadius: BorderRadius.circular(4), child: Image.memory(base64Decode(base64Img), width: 50, height: 50, fit: BoxFit.cover))
+                          : const CircleAvatar(backgroundColor: Colors.green, child: Icon(Icons.restaurant, color: Colors.white)),
                       title: Text(item['food_name']?.toString() ?? '未命名食物', style: const TextStyle(fontWeight: FontWeight.bold)),
                       subtitle: Text('${item['record_date'] ?? ''}\n${tWeight}g · ${totalCalories.toStringAsFixed(0)} kcal'),
-                      trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: (){ setState(() { _records.removeAt(i); }); _saveRecords(); }),
-                      // 點擊後跳轉至全螢幕編輯頁面
-                      onTap: () async {
-                        final updatedRecord = await Navigator.push(context, MaterialPageRoute(builder: (_) => EditRecordPage(record: item)));
-                        if (updatedRecord != null) {
-                          setState(() { _records[i] = updatedRecord; });
-                          _saveRecords();
-                        }
-                      },
+                      trailing: IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () { setState(() { _records.removeAt(i); }); _saveRecords(); }),
+                      onTap: () => _showDetail(item, i),
                     );
                   },
                 ),
@@ -415,7 +620,7 @@ class _RecordsPageState extends State<RecordsPage> {
 }
 
 // ==========================================
-// 2-1. 新增：全螢幕紀錄編輯頁面 (包含比例重算)
+// 2-1. 全螢幕紀錄編輯頁面 (比例自動重算)
 // ==========================================
 class EditRecordPage extends StatefulWidget {
   final Map<String, dynamic> record;
@@ -475,22 +680,18 @@ class _EditRecordPageState extends State<EditRecordPage> {
 
   void _saveAndRecalculate() {
     Map<String, dynamic> updatedRecord = Map<String, dynamic>.from(widget.record);
-    
     double newWeight = double.tryParse(weightCtrl.text) ?? 0;
     double newKcal = double.tryParse(kcalCtrl.text) ?? 0;
 
-    // 計算變更比例 (防呆：若原本為 0 則不進行放大，比例設為 1)
     double weightRatio = (_originalTotalWeight > 0) ? (newWeight / _originalTotalWeight) : 1.0;
     double kcalRatio = (_original100gKcal > 0) ? (newKcal / _original100gKcal) : 1.0;
 
-    // 同步更新食物拆解
     if (updatedRecord['breakdown'] is List) {
       List newBreakdown = [];
       for (var b in updatedRecord['breakdown']) {
         if (b is Map) {
           double bW = safeParseNum(b['weight_g']).toDouble();
           double bK = safeParseNum(b['calories_kcal']).toDouble();
-          // 重量只需乘上 weightRatio。熱量則受到「總重量變更」與「每百克熱量變更」雙重影響
           b['weight_g'] = double.parse((bW * weightRatio).toStringAsFixed(1));
           b['calories_kcal'] = double.parse((bK * weightRatio * kcalRatio).toStringAsFixed(1));
           newBreakdown.add(b);
@@ -503,7 +704,6 @@ class _EditRecordPageState extends State<EditRecordPage> {
     updatedRecord['total_weight_g'] = newWeight;
     updatedRecord['image_base64'] = _currentBase64Img;
     
-    // 更新 nutrients_per_100g
     Map<String, dynamic> newNutrients = updatedRecord['nutrients_per_100g'] is Map ? Map.from(updatedRecord['nutrients_per_100g']) : {};
     newNutrients['calories_kcal'] = newKcal;
     newNutrients['protein_g'] = double.tryParse(proteinCtrl.text) ?? 0;
@@ -515,7 +715,6 @@ class _EditRecordPageState extends State<EditRecordPage> {
     newNutrients['trans_fat_g'] = double.tryParse(transFatCtrl.text) ?? 0;
     
     updatedRecord['nutrients_per_100g'] = newNutrients;
-
     Navigator.pop(context, updatedRecord);
   }
 
@@ -533,13 +732,12 @@ class _EditRecordPageState extends State<EditRecordPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('編輯詳細紀錄'), actions: [IconButton(icon: const Icon(Icons.check), onPressed: _saveAndRecalculate)]),
+      appBar: AppBar(title: const Text('編輯詳細紀錄'), backgroundColor: Colors.green, actions: [IconButton(icon: const Icon(Icons.check), onPressed: _saveAndRecalculate)]),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 圖片更換區塊
             Center(
               child: GestureDetector(
                 onTap: _pickNewImage,
@@ -553,7 +751,7 @@ class _EditRecordPageState extends State<EditRecordPage> {
               ),
             ),
             const SizedBox(height: 16),
-            const Text('💡 修改下方數值時，系統會自動等比例重算「食物組成拆解」內的數值。', style: TextStyle(color: Colors.blue, fontSize: 13)),
+            const Text('💡 修改總重或每 100g 熱量時，系統會自動等比例重算食材拆解數值。', style: TextStyle(color: Colors.blue, fontSize: 13)),
             const SizedBox(height: 16),
             TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: '食物名稱', border: OutlineInputBorder(), isDense: true)),
             const SizedBox(height: 12),
@@ -564,7 +762,7 @@ class _EditRecordPageState extends State<EditRecordPage> {
             _buildTextField('熱量 (kcal)', kcalCtrl),
             Row(children: [Expanded(child: _buildTextField('碳水 (g)', carbsCtrl)), const SizedBox(width: 8), Expanded(child: _buildTextField('蛋白質 (g)', proteinCtrl)), const SizedBox(width: 8), Expanded(child: _buildTextField('脂肪 (g)', fatCtrl))]),
             Row(children: [Expanded(child: _buildTextField('糖分 (g)', sugarCtrl)), const SizedBox(width: 8), Expanded(child: _buildTextField('膳食纖維 (g)', fiberCtrl))]),
-            Row(children: [Expanded(child: _buildTextField('鈉含量 (mg)', sodiumCtrl)), const SizedBox(width: 8), Expanded(child: _buildTextField('反式脂肪 (g)', transFatCtrl))]),
+            Row(children: [Expanded(child: _buildTextField('鈉 (mg)', sodiumCtrl)), const SizedBox(width: 8), Expanded(child: _buildTextField('反式脂肪 (g)', transFatCtrl))]),
           ],
         ),
       ),
@@ -573,7 +771,7 @@ class _EditRecordPageState extends State<EditRecordPage> {
 }
 
 // ==========================================
-// 3. 熱量計算頁面 (包含新微量元素與 AI 評價)
+// 3. 熱量計算頁面 (包含 AI 綜合評價)
 // ==========================================
 class CalculatorPage extends StatefulWidget {
   const CalculatorPage({super.key});
@@ -621,7 +819,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('向 AI 營養顧問提問'),
-        content: TextField(controller: questionCtrl, maxLines: 4, decoration: const InputDecoration(hintText: '（可選）你想問 AI 什麼？', border: OutlineInputBorder())),
+        content: TextField(controller: questionCtrl, maxLines: 4, decoration: const InputDecoration(hintText: '（可選）你想問 AI 什麼？例如：今天飲食健康嗎？', border: OutlineInputBorder())),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
           ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.green), onPressed: () { Navigator.pop(ctx); _submitAIEval(questionCtrl.text.trim(), tKcal, tPro, tFat, tCarbs, tSugar, tSodium, tFiber, tTransFat); }, child: const Text('送出評價', style: TextStyle(color: Colors.white))),
@@ -636,7 +834,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
       final prefs = await SharedPreferences.getInstance();
       final apiKey = (prefs.getString('gemini_api_key') ?? '').trim();
       final modelName = prefs.getString('gemini_model') ?? 'gemini-3.8-flash';
-      if (apiKey.isEmpty) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('請先設定 API Key'))); return; }
+      if (apiKey.isEmpty) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('請先至「設定」輸入 API Key'))); return; }
 
       StringBuffer foodListString = StringBuffer();
       for (int i = 0; i < _selectedItems.length; i++) {
@@ -649,7 +847,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
       }
 
       final prompt = '''
-你是一位專業溫暖的 AI 營養顧問。
+你是一位專業且溫暖的 AI 營養顧問。
 【今日數據總結】
 目標熱量：$_targetCalories kcal | 實際熱量：${tKcal.toStringAsFixed(1)} kcal
 碳水：${tCarbs.toStringAsFixed(1)}g | 蛋白質：${tPro.toStringAsFixed(1)}g | 脂肪：${tFat.toStringAsFixed(1)}g
@@ -657,7 +855,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
 【飲食明細】
 $foodListString
 【使用者提問】
-${question.isEmpty ? "無提問，請給予整體總結。" : question}
+${question.isEmpty ? "無提問，請給予整體總結與建議。" : question}
 
 請嚴格輸出純 JSON 格式：
 {
@@ -684,11 +882,15 @@ ${question.isEmpty ? "無提問，請給予整體總結。" : question}
           aiResponse: jsonDecode(rawText),
         )));
       } else {
-        if (!mounted) return; showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('失敗'), content: Text(response.body)));
+        String msg = response.body;
+        try { msg = jsonDecode(response.body)['error']['message'] ?? response.body; } catch (_) {}
+        if (!mounted) return;
+        showDialog(context: context, builder: (ctx) => AlertDialog(title: Text('API 失敗 (${response.statusCode})'), content: Text(msg), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('確定'))]));
       }
     } catch (e) {
       if (mounted) Navigator.pop(context);
-      if (!mounted) return; showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('錯誤'), content: Text('$e')));
+      if (!mounted) return;
+      showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('連線錯誤'), content: Text('$e'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('確定'))]));
     }
   }
 
@@ -741,7 +943,7 @@ ${question.isEmpty ? "無提問，請給予整體總結。" : question}
               Expanded(
                 flex: 2,
                 child: _selectedItems.isEmpty
-                    ? const Center(child: Text('請加入食物', style: TextStyle(color: Colors.grey)))
+                    ? const Center(child: Text('請從左側點選食物加入', style: TextStyle(color: Colors.grey)))
                     : ListView.builder(
                         itemCount: _selectedItems.length,
                         itemBuilder: (ctx, i) {
@@ -797,7 +999,6 @@ ${question.isEmpty ? "無提問，請給予整體總結。" : question}
                 ],
               ),
               const Divider(),
-              // 顯示更豐富的營養素摘要
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -819,7 +1020,7 @@ ${question.isEmpty ? "無提問，請給予整體總結。" : question}
 }
 
 // ==========================================
-// 3-1. 全螢幕結果頁 (顯示 7 大微量/巨量營養素)
+// 3-1. 全螢幕結果頁 (支援整體長截圖)
 // ==========================================
 class AIEvaluationResultPage extends StatelessWidget {
   final List<Map<String, dynamic>> selectedItems;
@@ -929,7 +1130,7 @@ class AIEvaluationResultPage extends StatelessWidget {
 }
 
 // ==========================================
-// 4. 教學與設定頁面
+// 4. 教學與設定頁面 (已完全復原為原版模型清單)
 // ==========================================
 class ApiKeyHelpPage extends StatelessWidget {
   const ApiKeyHelpPage({super.key});
@@ -954,8 +1155,27 @@ class _SettingsPageState extends State<SettingsPage> {
   };
 
   @override void initState() { super.initState(); _loadSettings(); }
-  Future<void> _loadSettings() async { final prefs = await SharedPreferences.getInstance(); setState(() { _apiKeyController.text = prefs.getString('gemini_api_key') ?? ''; _targetCaloriesController.text = (prefs.getInt('target_calories') ?? 2000).toString(); _selectedModel = prefs.getString('gemini_model') ?? 'gemini-3.8-flash'; _uploadOriginal = prefs.getBool('upload_original') ?? false; }); }
-  Future<void> _autoSaveSettings() async { final prefs = await SharedPreferences.getInstance(); await prefs.setString('gemini_api_key', _apiKeyController.text.trim()); await prefs.setInt('target_calories', int.tryParse(_targetCaloriesController.text.trim()) ?? 2000); await prefs.setString('gemini_model', _selectedModel); await prefs.setBool('upload_original', _uploadOriginal); }
+  
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _apiKeyController.text = prefs.getString('gemini_api_key') ?? '';
+      _targetCaloriesController.text = (prefs.getInt('target_calories') ?? 2000).toString(); 
+      String savedModel = prefs.getString('gemini_model') ?? 'gemini-3.8-flash';
+      // 確保如果存到舊代碼，預設會切回 3.8-flash
+      if (!_modelDescriptions.containsKey(savedModel)) savedModel = 'gemini-3.8-flash';
+      _selectedModel = savedModel;
+      _uploadOriginal = prefs.getBool('upload_original') ?? false;
+    });
+  }
+
+  Future<void> _autoSaveSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('gemini_api_key', _apiKeyController.text.trim());
+    await prefs.setInt('target_calories', int.tryParse(_targetCaloriesController.text.trim()) ?? 2000); 
+    await prefs.setString('gemini_model', _selectedModel);
+    await prefs.setBool('upload_original', _uploadOriginal);
+  }
 
   @override Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -969,7 +1189,17 @@ class _SettingsPageState extends State<SettingsPage> {
           TextField(controller: _apiKeyController, onChanged: (val) => _autoSaveSettings(), decoration: const InputDecoration(hintText: '請輸入你的 API Key', border: OutlineInputBorder(), prefixIcon: Icon(Icons.vpn_key)), obscureText: true),
           Align(alignment: Alignment.centerRight, child: TextButton(onPressed: () { Navigator.push(context, MaterialPageRoute(builder: (_) => const ApiKeyHelpPage())); }, child: const Text('如何免費申請 API Key？', style: TextStyle(decoration: TextDecoration.underline, fontSize: 13, color: Colors.blue)))), const SizedBox(height: 12),
           const Text('選擇 AI 分析模型', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)), const SizedBox(height: 8),
-          DropdownButtonFormField<String>(value: _selectedModel, decoration: const InputDecoration(border: OutlineInputBorder()), items: const [DropdownMenuItem(value: 'gemini-3.1-pro-preview', child: Text('Gemini 3.1 Pro (最強)')), DropdownMenuItem(value: 'gemini-3.8-flash', child: Text('Gemini 3.8 Flash (推薦)')), DropdownMenuItem(value: 'gemini-3.5-flash-lite', child: Text('Gemini 3.5 Flash-Lite (極速)'))], onChanged: (val) { if (val != null) { setState(() => _selectedModel = val); _autoSaveSettings(); } }), const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            value: _selectedModel,
+            decoration: const InputDecoration(border: OutlineInputBorder()),
+            items: const [
+              DropdownMenuItem(value: 'gemini-3.1-pro-preview', child: Text('Gemini 3.1 Pro (最強)')),
+              DropdownMenuItem(value: 'gemini-3.8-flash', child: Text('Gemini 3.8 Flash (推薦)')),
+              DropdownMenuItem(value: 'gemini-3.5-flash-lite', child: Text('Gemini 3.5 Flash-Lite (極速)')),
+            ],
+            onChanged: (val) { if (val != null) { setState(() => _selectedModel = val); _autoSaveSettings(); } },
+          ),
+          const SizedBox(height: 8),
           Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.blue.withOpacity(0.05), borderRadius: BorderRadius.circular(8)), child: Text(_modelDescriptions[_selectedModel] ?? '', style: const TextStyle(color: Colors.black87, height: 1.4))), const SizedBox(height: 24),
           const Text('進階設定', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)), const SizedBox(height: 8),
           Container(decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)), child: SwitchListTile(title: const Text('上傳原圖給 AI 分析', style: TextStyle(fontWeight: FontWeight.bold)), subtitle: const Text('【開啟】AI 辨識更精準，但消耗網路流量。\n【關閉】上傳前自動壓縮圖片，省流量速度快。', style: TextStyle(fontSize: 12, height: 1.3)), value: _uploadOriginal, activeColor: Colors.green, onChanged: (val) { setState(() => _uploadOriginal = val); _autoSaveSettings(); })),
