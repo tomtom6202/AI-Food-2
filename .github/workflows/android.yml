@@ -17,16 +17,16 @@ jobs:
         with:
           channel: 'stable'
           
-      - run: flutter create . --platforms android
+      # 加入 --org 參數，產生全新的應用程式 ID
+      - run: flutter create --org com.newversion . --platforms android
       
-      # [重點1]：強制替換 Android 顯示名稱，你可以把 "AI 營養顧問" 換成你想要的 App 名稱
-      - run: sed -i 's/android:label="[^"]*"/android:label="AI 營養顧問"/g' android/app/src/main/AndroidManifest.xml
+      # 強制替換 Android 顯示名稱，加上 "(新版)" 方便區分
+      - run: sed -i 's/android:label="[^"]*"/android:label="AI 營養顧問 (新版)"/g' android/app/src/main/AndroidManifest.xml
       
       - run: sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' android/app/src/main/AndroidManifest.xml
       
       - run: flutter pub get
       
-      # [重點2]：呼叫我們剛剛加入的套件，根據 icon.png 自動幫你裁切各種尺寸的 App 圖示
       - run: flutter pub run flutter_launcher_icons
       
       - run: flutter build apk --release
