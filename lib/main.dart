@@ -245,17 +245,31 @@ class _HomePageState extends State<HomePage> {
           if (!mounted) return;
           _showResultAndSaveDialog(jsonDecode(rawText), dbThumbnailBase64);
           break; 
-        } else if (response.statusCode == 503) {
+        } else if (response.statusCode == 503 || response.statusCode == 429) {
+          // 加入 429 (Too Many Requests) 判定
           if (!isRetrying) {
             isRetrying = true;
             if (!mounted) return;
-            // 完美還原原本 100% 的伺服器擁擠提示與設定跳轉按鈕
             showDialog(context: context, barrierDismissible: false, builder: (ctx) {
                 dialogContext = ctx;
-                return AlertDialog(title: const Text('伺服器滿載中'), content: const Column(mainAxisSize: MainAxisSize.min, children: [CircularProgressIndicator(color: Colors.green), SizedBox(height: 16), Text('排隊等待模型中，請稍後。\n如等待過久，請至設定中嘗試其他模型。', textAlign: TextAlign.center)]), actions: [TextButton(onPressed: () { isCancelled = true; Navigator.pop(ctx); }, child: const Text('取消', style: TextStyle(color: Colors.grey))), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.blue), onPressed: () { isCancelled = true; Navigator.pop(ctx); widget.onGoToSettings(); }, child: const Text('選擇其他模型', style: TextStyle(color: Colors.white)))]);
+                return AlertDialog(
+                  title: const Text('API 忙碌中'),
+                  content: const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(color: Colors.green), SizedBox(height: 16),
+                      Text('伺服器滿載或請求過於頻繁\n正在自動排隊重試，請稍後...\n如等待過久，請至設定中嘗試其他模型。', textAlign: TextAlign.center)
+                    ]
+                  ),
+                  actions: [
+                    TextButton(onPressed: () { isCancelled = true; Navigator.pop(ctx); }, child: const Text('取消', style: TextStyle(color: Colors.grey))),
+                    ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.blue), onPressed: () { isCancelled = true; Navigator.pop(ctx); widget.onGoToSettings(); }, child: const Text('選擇其他模型', style: TextStyle(color: Colors.white)))
+                  ]
+                );
             });
           }
-          await Future.delayed(const Duration(milliseconds: 500));
+          // 改為等待 4 秒鐘 (吻合免費版 15 RPM 限制)
+          await Future.delayed(const Duration(milliseconds: 4000));
           continue;
         } else {
           if (isRetrying && dialogContext != null && mounted) { Navigator.pop(dialogContext!); isRetrying = false; }
@@ -404,7 +418,7 @@ class _HomePageState extends State<HomePage> {
 }
 
 // ==========================================
-// 2. 紀錄頁面 (檢視詳細與跳轉編輯)
+// 2. 紀錄頁面
 // ==========================================
 class RecordsPage extends StatefulWidget {
   const RecordsPage({super.key});
@@ -620,7 +634,7 @@ class _RecordsPageState extends State<RecordsPage> {
 }
 
 // ==========================================
-// 2-1. 全螢幕紀錄編輯頁面 (比例自動重算)
+// 2-1. 全螢幕紀錄編輯頁面
 // ==========================================
 class EditRecordPage extends StatefulWidget {
   final Map<String, dynamic> record;
@@ -829,12 +843,24 @@ class _CalculatorPageState extends State<CalculatorPage> {
   }
 
   Future<void> _submitAIEval(String question, double tKcal, double tPro, double tFat, double tCarbs, double tSugar, double tSodium, double tFiber, double tTransFat) async {
-    showDialog(context: context, barrierDismissible: false, builder: (ctx) => AlertDialog(content: Row(children: const [CircularProgressIndicator(), SizedBox(width: 20), Text('AI 評估中...')])));
+    bool isRetrying = false;
+    bool isCancelled = false;
+    BuildContext? dialogContext;
+
+    showDialog(context: context, barrierDismissible: false, builder: (ctx) {
+      dialogContext = ctx;
+      return const AlertDialog(content: Row(children: [CircularProgressIndicator(), SizedBox(width: 20), Expanded(child: Text('AI 評估中...'))]));
+    });
+
     try {
       final prefs = await SharedPreferences.getInstance();
       final apiKey = (prefs.getString('gemini_api_key') ?? '').trim();
       final modelName = prefs.getString('gemini_model') ?? 'gemini-3.8-flash';
-      if (apiKey.isEmpty) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('請先至「設定」輸入 API Key'))); return; }
+      if (apiKey.isEmpty) {
+        if (mounted && dialogContext != null) Navigator.pop(dialogContext!);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('請先至「設定」輸入 API Key')));
+        return;
+      }
 
       StringBuffer foodListString = StringBuffer();
       for (int i = 0; i < _selectedItems.length; i++) {
@@ -867,28 +893,53 @@ ${question.isEmpty ? "無提問，請給予整體總結與建議。" : question}
 ''';
 
       final url = Uri.https('generativelanguage.googleapis.com', '/v1beta/models/$modelName:generateContent', {'key': apiKey});
-      final response = await http.post(url, headers: {'Content-Type': 'application/json'}, body: jsonEncode({ "contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"} }));
-      Navigator.pop(context);
+      final requestBody = jsonEncode({ "contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"} });
 
-      if (response.statusCode == 200) {
-        String rawText = jsonDecode(response.body)['candidates'][0]['content']['parts'][0]['text'];
-        int start = rawText.indexOf('{'); int end = rawText.lastIndexOf('}');
-        if (start != -1 && end != -1) rawText = rawText.substring(start, end + 1);
-        if (!mounted) return;
-        Navigator.push(context, MaterialPageRoute(builder: (context) => AIEvaluationResultPage(
-          selectedItems: List.from(_selectedItems), targetCalories: _targetCalories,
-          totalKcal: tKcal, totalProtein: tPro, totalFat: tFat, totalCarbs: tCarbs,
-          totalSugar: tSugar, totalSodium: tSodium, totalFiber: tFiber, totalTransFat: tTransFat,
-          aiResponse: jsonDecode(rawText),
-        )));
-      } else {
-        String msg = response.body;
-        try { msg = jsonDecode(response.body)['error']['message'] ?? response.body; } catch (_) {}
-        if (!mounted) return;
-        showDialog(context: context, builder: (ctx) => AlertDialog(title: Text('API 失敗 (${response.statusCode})'), content: Text(msg), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('確定'))]));
+      // 同樣套用自動排隊機制
+      while (!isCancelled) {
+        final response = await http.post(url, headers: {'Content-Type': 'application/json'}, body: requestBody);
+        
+        if (response.statusCode == 200) {
+          if (mounted && dialogContext != null) { Navigator.pop(dialogContext!); dialogContext = null; }
+          String rawText = jsonDecode(response.body)['candidates'][0]['content']['parts'][0]['text'];
+          int start = rawText.indexOf('{'); int end = rawText.lastIndexOf('}');
+          if (start != -1 && end != -1) rawText = rawText.substring(start, end + 1);
+          
+          if (!mounted) return;
+          Navigator.push(context, MaterialPageRoute(builder: (context) => AIEvaluationResultPage(
+            selectedItems: List.from(_selectedItems), targetCalories: _targetCalories,
+            totalKcal: tKcal, totalProtein: tPro, totalFat: tFat, totalCarbs: tCarbs,
+            totalSugar: tSugar, totalSodium: tSodium, totalFiber: tFiber, totalTransFat: tTransFat,
+            aiResponse: jsonDecode(rawText),
+          )));
+          break;
+        } else if (response.statusCode == 503 || response.statusCode == 429) {
+          if (!isRetrying) {
+            isRetrying = true;
+            if (mounted && dialogContext != null) { Navigator.pop(dialogContext!); }
+            if (!mounted) return;
+            showDialog(context: context, barrierDismissible: false, builder: (ctx) {
+                dialogContext = ctx;
+                return AlertDialog(
+                  title: const Text('API 忙碌中'),
+                  content: const Column(mainAxisSize: MainAxisSize.min, children: [CircularProgressIndicator(color: Colors.green), SizedBox(height: 16), Text('伺服器滿載或請求過快\n正在自動排隊重試，請稍後...', textAlign: TextAlign.center)]),
+                  actions: [TextButton(onPressed: () { isCancelled = true; Navigator.pop(ctx); }, child: const Text('取消', style: TextStyle(color: Colors.grey)))]
+                );
+            });
+          }
+          await Future.delayed(const Duration(milliseconds: 4000));
+          continue;
+        } else {
+          if (mounted && dialogContext != null) { Navigator.pop(dialogContext!); dialogContext = null; }
+          String msg = response.body;
+          try { msg = jsonDecode(response.body)['error']['message'] ?? response.body; } catch (_) {}
+          if (!mounted) return;
+          showDialog(context: context, builder: (ctx) => AlertDialog(title: Text('API 失敗 (${response.statusCode})'), content: Text(msg), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('確定'))]));
+          break;
+        }
       }
     } catch (e) {
-      if (mounted) Navigator.pop(context);
+      if (mounted && dialogContext != null) Navigator.pop(dialogContext!);
       if (!mounted) return;
       showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('連線錯誤'), content: Text('$e'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('確定'))]));
     }
@@ -1020,7 +1071,7 @@ ${question.isEmpty ? "無提問，請給予整體總結與建議。" : question}
 }
 
 // ==========================================
-// 3-1. 全螢幕結果頁 (支援整體長截圖)
+// 3-1. 全螢幕結果頁
 // ==========================================
 class AIEvaluationResultPage extends StatelessWidget {
   final List<Map<String, dynamic>> selectedItems;
@@ -1130,7 +1181,7 @@ class AIEvaluationResultPage extends StatelessWidget {
 }
 
 // ==========================================
-// 4. 教學與設定頁面 (已完全復原為原版模型清單)
+// 4. 教學與設定頁面
 // ==========================================
 class ApiKeyHelpPage extends StatelessWidget {
   const ApiKeyHelpPage({super.key});
@@ -1162,7 +1213,6 @@ class _SettingsPageState extends State<SettingsPage> {
       _apiKeyController.text = prefs.getString('gemini_api_key') ?? '';
       _targetCaloriesController.text = (prefs.getInt('target_calories') ?? 2000).toString(); 
       String savedModel = prefs.getString('gemini_model') ?? 'gemini-3.8-flash';
-      // 確保如果存到舊代碼，預設會切回 3.8-flash
       if (!_modelDescriptions.containsKey(savedModel)) savedModel = 'gemini-3.8-flash';
       _selectedModel = savedModel;
       _uploadOriginal = prefs.getBool('upload_original') ?? false;
