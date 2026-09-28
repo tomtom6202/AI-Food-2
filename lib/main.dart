@@ -67,7 +67,7 @@ class _MainScreenState extends State<MainScreen> {
 }
 
 // ==========================================
-// 全域共用工具與常數 (終極防呆機制)
+// 全域共用工具與常數
 // ==========================================
 final Map<String, String> nutrientDisplayNames = {
   'calories_kcal': '熱量 (kcal)', 'protein_g': '蛋白質 (g)', 'fat_g': '脂肪 (g)', 'carbs_g': '碳水化合物 (g)',
@@ -204,16 +204,9 @@ class _HomePageState extends State<HomePage> {
     "overall": {"score": "A", "reason": "說明..."}
   }
 }
-（若有微量元素可自行加在 nutrients_per_100g 中，無則省略，數值請務必只填寫數字）
 ''';
 
-      // 🛡️ 這裡改用安全的 Uri.https，徹底避免複製貼上帶來的隱藏符號與括號錯誤
-      final url = Uri.https(
-        'generativelanguage.googleapis.com',
-        '/v1beta/models/$modelName:generateContent',
-        {'key': apiKey}
-      );
-
+      final url = Uri.https('generativelanguage.googleapis.com', '/v1beta/models/$modelName:generateContent', {'key': apiKey});
       final requestBody = jsonEncode({ "contents": [{"parts": [{"text": prompt}, {"inline_data": {"mime_type": "image/jpeg", "data": base64Image}}]}], "generationConfig": {"response_mime_type": "application/json"} });
 
       while (!isCancelled) {
@@ -286,7 +279,7 @@ class _HomePageState extends State<HomePage> {
                   ...breakdownData.whereType<Map>().map((item) {
                      num bWeight = safeParseNum(item['weight_g']);
                      num bKcal = safeParseNum(item['calories_kcal']);
-                     return Padding(padding: const EdgeInsets.only(bottom: 4.0), child: Text('• ${item['name']} (${bWeight}g, ${bKcal}大卡)'));
+                     return Padding(padding: const EdgeInsets.only(bottom: 4.0), child: Text('• ${item['name']} (${bWeight}g,${bKcal}大卡)'));
                   }),
                   const Divider(height: 24),
                 ],
@@ -466,7 +459,7 @@ class _RecordsPageState extends State<RecordsPage> {
                   ...breakdownData.whereType<Map>().map((b) {
                      num bWeight = safeParseNum(b['weight_g']);
                      num bKcal = safeParseNum(b['calories_kcal']);
-                     return Text('• ${b['name']} (${bWeight}g, ${bKcal}大卡)');
+                     return Text('• ${b['name']} (${bWeight}g,${bKcal}大卡)');
                   }),
                   const Divider(height: 20),
                 ],
@@ -536,7 +529,7 @@ class _RecordsPageState extends State<RecordsPage> {
 }
 
 // ==========================================
-// 3. 熱量計算頁面
+// 3. 熱量計算頁面 (包含 AI 綜合評價)
 // ==========================================
 class CalculatorPage extends StatefulWidget {
   const CalculatorPage({super.key});
@@ -576,6 +569,144 @@ class _CalculatorPageState extends State<CalculatorPage> {
       if (current <= 0) _selectedItems.removeAt(index);
       else _selectedItems[index]['multiplier'] = current;
     });
+  }
+
+  // --- 新增：呼叫 AI 評價對話框 ---
+  void _showAIEvalDialog(double totalKcal, double totalProtein, double totalFat, double totalCarbs) {
+    if (_selectedItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('請先在右側加入食物！')));
+      return;
+    }
+
+    final questionCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('向 AI 營養顧問提問'),
+        content: TextField(
+          controller: questionCtrl,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            hintText: '（可選）你想問 AI 什麼？例如：\n今天這樣吃健康嗎？\n晚上還可以吃什麼？',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _submitAIEval(questionCtrl.text.trim(), totalKcal, totalProtein, totalFat, totalCarbs);
+            },
+            child: const Text('送出評價', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- 新增：實際發送請求給 Gemini API ---
+  Future<void> _submitAIEval(String question, double totalKcal, double totalProtein, double totalFat, double totalCarbs) async {
+    // 顯示 Loading
+    showDialog(
+      context: context, barrierDismissible: false,
+      builder: (ctx) => AlertDialog(content: Row(children: const [CircularProgressIndicator(), SizedBox(width: 20), Text('AI 正在綜合評估中...')])),
+    );
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final apiKey = (prefs.getString('gemini_api_key') ?? '').trim();
+      final modelName = prefs.getString('gemini_model') ?? 'gemini-3.8-flash';
+
+      if (apiKey.isEmpty) {
+        Navigator.pop(context); // 關閉 Loading
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('請先至「設定」頁面輸入 API Key')));
+        return;
+      }
+
+      // 準備清單字串
+      StringBuffer foodListString = StringBuffer();
+      for (int i = 0; i < _selectedItems.length; i++) {
+        final item = _selectedItems[i];
+        final record = item['record'];
+        final double multiplier = item['multiplier'];
+        final double weight = safeParseNum(record['total_weight_g']).toDouble();
+        final nutrients = record['nutrients_per_100g'] is Map ? record['nutrients_per_100g'] : {};
+        
+        final kcal = (safeParseNum(nutrients['calories_kcal']) / 100) * weight * multiplier;
+        final protein = (safeParseNum(nutrients['protein_g']) / 100) * weight * multiplier;
+        final fat = (safeParseNum(nutrients['fat_g']) / 100) * weight * multiplier;
+        final carbs = (safeParseNum(nutrients['carbs_g']) / 100) * weight * multiplier;
+        final name = record['food_name'] ?? '未命名';
+        
+        foodListString.writeln('${i + 1}.$name (${multiplier}份, 約${(weight * multiplier).toStringAsFixed(0)}g)：${kcal.toStringAsFixed(0)} kcal \vert{} 碳水: ${carbs.toStringAsFixed(1)}g, 蛋白: ${protein.toStringAsFixed(1)}g, 脂肪: ${fat.toStringAsFixed(1)}g');
+      }
+
+      final prompt = '''
+你是一位專業且溫暖的 AI 營養顧問。使用者提供了一份他今日的飲食紀錄，請協助評估整體狀況，並回答他的疑問。
+
+【使用者的飲食數據】
+- 每日目標熱量：$_targetCalories kcal
+- 今日總結算：熱量 ${totalKcal.toStringAsFixed(1)} kcal \vert{} 碳水 ${totalCarbs.toStringAsFixed(1)}g | 蛋白質 ${totalProtein.toStringAsFixed(1)}g \vert{} 脂肪 ${totalFat.toStringAsFixed(1)}g
+- 飲食明細：
+$foodListString
+
+【使用者的提問】
+${question.isEmpty ? "（無特別提問，請給予整體飲食總結即可）" : question}
+
+【輸出格式要求】
+請務必只輸出純 JSON 格式，不要加入 ```json 標籤或任何說明文字。
+請嚴格依照以下 JSON 結構輸出：
+{
+  "health_score": 85, 
+  "overall_review": "這裡填寫對今天整體飲食的綜合評語（例如熱量是否達標、三大營養素比例是否均衡）。",
+  "suggestions": [
+    "具體的改善建議 1",
+    "具體的改善建議 2"
+  ],
+  "qa_answer": "這裡專門回答【使用者的提問】。如果使用者沒有提問，請在此欄位給予一句溫暖的鼓勵話語。"
+}
+''';
+
+      final url = Uri.https('generativelanguage.googleapis.com', '/v1beta/models/$modelName:generateContent', {'key': apiKey});
+      final requestBody = jsonEncode({ "contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"} });
+
+      final response = await http.post(url, headers: {'Content-Type': 'application/json'}, body: requestBody);
+      
+      Navigator.pop(context); // 關閉 Loading
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        String rawText = data['candidates'][0]['content']['parts'][0]['text'];
+        int startIndex = rawText.indexOf('{'); int endIndex = rawText.lastIndexOf('}');
+        if (startIndex != -1 && endIndex != -1) rawText = rawText.substring(startIndex, endIndex + 1);
+        final aiData = jsonDecode(rawText);
+
+        if (!mounted) return;
+        // 跳轉到全螢幕結果頁
+        Navigator.push(context, MaterialPageRoute(
+          builder: (context) => AIEvaluationResultPage(
+            selectedItems: List.from(_selectedItems),
+            targetCalories: _targetCalories,
+            totalKcal: totalKcal,
+            totalProtein: totalProtein,
+            totalFat: totalFat,
+            totalCarbs: totalCarbs,
+            aiResponse: aiData,
+          )
+        ));
+      } else {
+        String msg = '未知錯誤';
+        try { msg = jsonDecode(response.body)['error']['message'] ?? response.body; } catch (_) { msg = response.body; }
+        if (!mounted) return;
+        showDialog(context: context, builder: (ctx) => AlertDialog(title: Text('API 連線失敗 (${response.statusCode})'), content: SingleChildScrollView(child: Text('伺服器訊息:\n$msg')), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('確定'))]));
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context); // 如果出錯，確保 Loading 關閉
+      if (!mounted) return;
+      showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('發生錯誤'), content: SingleChildScrollView(child: Text('無法解析資料或連線異常。\n\n詳細錯誤：\n$e')), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('確定'))]));
+    }
   }
 
   @override
@@ -692,7 +823,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
           ),
         ),
         Container(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(12.0),
           decoration: const BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, -2))]),
           child: Column(
             children: [
@@ -707,11 +838,21 @@ class _CalculatorPageState extends State<CalculatorPage> {
                       Text('目標: $_targetCalories | 剩餘: ${remainingKcal.toStringAsFixed(0)}', style: TextStyle(color: remainingKcal < 0 ? Colors.red : Colors.green, fontWeight: FontWeight.bold)),
                     ],
                   ),
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                    onPressed: () => setState(() => _selectedItems.clear()),
-                    icon: const Icon(Icons.delete_sweep, color: Colors.white),
-                    label: const Text('清空', style: TextStyle(color: Colors.white)),
+                  // -- 這裡修改：加入 AI 評價按鈕 --
+                  Row(
+                    children: [
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, padding: const EdgeInsets.symmetric(horizontal: 12)),
+                        onPressed: () => _showAIEvalDialog(totalKcal, totalProtein, totalFat, totalCarbs),
+                        child: const Text('AI評價', style: TextStyle(color: Colors.white)),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red, padding: const EdgeInsets.symmetric(horizontal: 12)),
+                        onPressed: () => setState(() => _selectedItems.clear()),
+                        child: const Icon(Icons.delete_sweep, color: Colors.white),
+                      ),
+                    ],
                   )
                 ],
               ),
@@ -727,6 +868,217 @@ class _CalculatorPageState extends State<CalculatorPage> {
             ],
           ),
         )
+      ],
+    );
+  }
+}
+
+// ==========================================
+// 3-1. 新增：AI 評價結果全螢幕頁面 (支援整體滑動)
+// ==========================================
+class AIEvaluationResultPage extends StatelessWidget {
+  final List<Map<String, dynamic>> selectedItems;
+  final int targetCalories;
+  final double totalKcal;
+  final double totalProtein;
+  final double totalFat;
+  final double totalCarbs;
+  final Map<String, dynamic> aiResponse;
+
+  const AIEvaluationResultPage({
+    super.key,
+    required this.selectedItems,
+    required this.targetCalories,
+    required this.totalKcal,
+    required this.totalProtein,
+    required this.totalFat,
+    required this.totalCarbs,
+    required this.aiResponse,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // 預防解析錯誤，設定預設值
+    final int score = int.tryParse(aiResponse['health_score']?.toString() ?? '0') ?? 0;
+    final String overallReview = aiResponse['overall_review']?.toString() ?? '無評語';
+    final List suggestions = aiResponse['suggestions'] is List ? aiResponse['suggestions'] : [];
+    final String qaAnswer = aiResponse['qa_answer']?.toString() ?? '';
+
+    // 依據分數決定顏色
+    Color scoreColor = Colors.green;
+    if (score < 60) scoreColor = Colors.red;
+    else if (score < 80) scoreColor = Colors.orange;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('AI 飲食診斷報告'),
+        backgroundColor: Colors.blue,
+      ),
+      // 這裡最外層包 SingleChildScrollView 確保整頁可流暢滑動與截圖
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('📝 今日飲食明細', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              
+              // 區塊 1: 網格排列的食物清單
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(), // 關閉網格內部滑動，交由外層控制
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: 0.75, // 調整比例讓內容放得下
+                ),
+                itemCount: selectedItems.length,
+                itemBuilder: (ctx, i) {
+                  final item = selectedItems[i];
+                  final record = item['record'];
+                  final double multiplier = item['multiplier'];
+                  final double weight = safeParseNum(record['total_weight_g']).toDouble();
+                  final nutrients = record['nutrients_per_100g'] is Map ? record['nutrients_per_100g'] : {};
+                  
+                  final kcal = (safeParseNum(nutrients['calories_kcal']) / 100) * weight * multiplier;
+                  final protein = (safeParseNum(nutrients['protein_g']) / 100) * weight * multiplier;
+                  final fat = (safeParseNum(nutrients['fat_g']) / 100) * weight * multiplier;
+                  final carbs = (safeParseNum(nutrients['carbs_g']) / 100) * weight * multiplier;
+                  final String? base64Img = record['image_base64'];
+
+                  return Container(
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)]),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: ClipRRect(
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                            child: (base64Img != null && base64Img.isNotEmpty)
+                                ? Image.memory(base64Decode(base64Img), fit: BoxFit.cover)
+                                : Container(color: Colors.grey[200], child: const Icon(Icons.restaurant, color: Colors.grey, size: 40)),
+                          ),
+                        ),
+                        Expanded(
+                          flex: 4,
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(record['food_name']?.toString() ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                const SizedBox(height: 2),
+                                Text('${multiplier}份 (${(weight * multiplier).toStringAsFixed(0)}g)', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                                const Spacer(),
+                                Text('${kcal.toStringAsFixed(0)} kcal', style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 13)),
+                                Text('碳水 ${carbs.toStringAsFixed(1)}g\n蛋白 ${protein.toStringAsFixed(1)}g\n脂肪 ${fat.toStringAsFixed(1)}g', style: const TextStyle(fontSize: 10, color: Colors.black54, height: 1.2)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+
+              // 區塊 2: 營養總結數據
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('總熱量', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        Text('${totalKcal.toStringAsFixed(0)} / $targetCalories kcal', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      ],
+                    ),
+                    const Divider(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _buildMacroText('碳水', totalCarbs, Colors.orange),
+                        _buildMacroText('蛋白質', totalProtein, Colors.blue),
+                        _buildMacroText('脂肪', totalFat, Colors.redAccent),
+                      ],
+                    )
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // 區塊 3: AI 回覆內容
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      SizedBox(width: 70, height: 70, child: CircularProgressIndicator(value: score / 100, color: scoreColor, backgroundColor: Colors.grey[200], strokeWidth: 8)),
+                      Text('$score', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: scoreColor)),
+                    ],
+                  ),
+                  const SizedBox(width: 16),
+                  const Expanded(child: Text('AI 健康評分', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
+                ],
+              ),
+              const SizedBox(height: 24),
+              
+              const Text('💡 綜合評語', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue)),
+              const SizedBox(height: 8),
+              Text(overallReview, style: const TextStyle(fontSize: 15, height: 1.5)),
+              const SizedBox(height: 24),
+
+              if (suggestions.isNotEmpty) ...[
+                const Text('✅ 改善建議', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green)),
+                const SizedBox(height: 8),
+                ...suggestions.map((s) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('• ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      Expanded(child: Text(s.toString(), style: const TextStyle(fontSize: 15, height: 1.5))),
+                    ],
+                  ),
+                )),
+                const SizedBox(height: 24),
+              ],
+
+              if (qaAnswer.isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: Colors.amber.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.amber)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('💬 AI 顧問回覆', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.amber)),
+                      const SizedBox(height: 8),
+                      Text(qaAnswer, style: const TextStyle(fontSize: 15, height: 1.5)),
+                    ],
+                  ),
+                )
+              ],
+              const SizedBox(height: 40), // 底部留白
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMacroText(String title, double value, Color color) {
+    return Column(
+      children: [
+        Text(title, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 4),
+        Text('${value.toStringAsFixed(1)}g', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
       ],
     );
   }
